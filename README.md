@@ -103,6 +103,9 @@ la escena.
 | Acción | Cómo |
 |---|---|
 | Mover una pieza | Arrastrarla con el botón izquierdo |
+| Redimensionar largo/ancho | Arrastrar uno de los 4 vértices superiores |
+| Redimensionar alto | Arrastrar el handle central del techo |
+| Cancelar el redimensionado | **Esc** |
 | Apilar al mover | Modo apilar activado, o **Shift** mientras arrastrás |
 | Orbitar | Arrastrar el fondo (fuera de una pieza) |
 | Zoom | Rueda del mouse |
@@ -111,8 +114,30 @@ la escena.
 | Rotar 90° | Botón **Rotar 90°** o tecla **R** |
 
 La tecla R no actúa mientras estás escribiendo en un campo de texto o número.
-Rotar intercambia largo y ancho; si la pieza no entra rotada, se revierte y
-aparece un aviso.
+Rotar intercambia la orientación de la huella (el largo y el ancho en el piso);
+las columnas **Largo** y **Ancho** de la tabla no cambian. Si la pieza no entra
+rotada, se revierte y aparece un aviso.
+
+## Redimensionar con el mouse
+
+Con la pieza seleccionada aparecen **5 handles azules** sobre ella:
+
+| Handle | Qué cambia |
+|---|---|
+| Los **4 vértices superiores** | Largo y ancho |
+| El **centro de la cara superior** | Alto |
+
+- El **vértice opuesto** y la base de la pieza quedan fijos.
+- Con **Ajustar a grilla** activo, la esquina arrastrada cae en la grilla de
+  10 cm. Sin grilla, la resolución es de 1 cm.
+- El tamaño mínimo es de 10 cm con grilla y 1 cm sin grilla.
+- Si el nuevo tamaño choca o se sale del piso, se conserva el último tamaño
+  válido y el handle se pone **rojo**.
+- Mientras arrastrás no se reacomoda nada: al soltar, la pieza y las que estén
+  encima se asientan según las reglas de apoyo.
+- **Esc** cancela el redimensionado en curso y devuelve las medidas anteriores.
+- La tabla, la etiqueta y las estadísticas se actualizan en vivo.
+- El cursor cambia a `nwse-resize` en los vértices y a `ns-resize` en el alto.
 
 ## Reglas de acomodo
 
@@ -166,7 +191,8 @@ Tiene que ser la 0.128: el código usa el `OrbitControls` clásico
 - El precio se calcula únicamente sobre la huella en el piso; no incluye
   volumen, altura ni peso. Siempre se factura en m² enteros (redondeo hacia
   arriba).
-- No hay deshacer ni historial. Borrar una fila es inmediato.
+- No hay deshacer ni historial. Borrar una fila es inmediato. **Esc** solo
+  cancela el redimensionado que está en curso.
 - Con muchas piezas la edición puede ponerse lenta, porque cada cambio
   reconstruye geometrías y etiquetas.
 - No se guarda nada: ni piezas, ni medidas, ni precio.
@@ -184,6 +210,9 @@ Todo está en un único `<script>` al final del archivo. Puntos útiles:
 | Colisión y apoyo | `ov()`, `collides()`, `supportY()`, `stackedOn()` |
 | Caída y reacomodo | `settle()`, `tryPlace()`, `fit()` |
 | Ubicación automática | `placeNew()` |
+| Handles de redimensionado | `handleMeshes`, `syncHandles()`, `sizeHandles()` |
+| Resize de largo/ancho y de alto | `resizeVertex()`, `resizeHeight()`, `snapshot()`, `restore()` |
+| Cancelación con Esc | `cancelResize()` |
 | Cálculo de superficie, redondeo y precio | `updateStats()` |
 | Cámara | `fitCamera()` |
 | Estilos y layout responsive | bloque `<style>` (`#panel`, `#view`, media query) |

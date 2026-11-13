@@ -100,7 +100,7 @@
       <button type="button" id="btn-3d">Vista 3D</button>
       <button type="button" id="btn-top">Vista cenital</button>
     </div>
-    <div class="help">Arrastrar pieza: mover. Arrastrar fondo: orbitar. Rueda: zoom. Botón derecho: desplazar.</div>
+    <div class="help">Arrastrar pieza: mover. Vértices azules: redimensionar. Arrastrar fondo: orbitar. Rueda: zoom. Botón derecho: desplazar.</div>
     <div id="msg"></div>
   </main>
 </div>
@@ -157,6 +157,30 @@
   var ndc = new THREE.Vector2();
   var hitPoint = new THREE.Vector3();
 
+  // ---------- Handles de redimensionado ----------
+  // 4 vértices superiores (largo/ancho) + 1 centro del techo (alto).
+  var HANDLE_R = 7; // radio en píxeles
+  var handleGroup = new THREE.Group();
+  handleGroup.visible = false;
+  scene.add(handleGroup);
+  var handleMeshes = [];
+  (function () {
+    var geo = new THREE.SphereGeometry(1, 16, 12);
+    var spots = [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, 0]];
+    spots.forEach(function (s, i) {
+      var m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        color: 0x1f6feb, depthTest: false, depthWrite: false
+      }));
+      m.renderOrder = 1000;
+      m.frustumCulled = false;
+      m.userData.sx = s[0];
+      m.userData.sz = s[1];
+      m.userData.top = (i === 4);
+      handleGroup.add(m);
+      handleMeshes.push(m);
+    });
+  })();
+
   var floorGroup = new THREE.Group();
   scene.add(floorGroup);
 
@@ -208,6 +232,13 @@
     return p;
   }
 
+  function labelTransform(p) {
+    if (!p.label) return;
+    var sw = Math.max(50, Math.min(Math.max(p.fx, p.fz), 180));
+    p.label.scale.set(sw, sw / 4, 1);
+    p.label.position.set(0, p.h / 2 + sw / 8 + 4, 0);
+  }
+
   function updateLabel(p) {
     if (!p.mesh) return;
     if (!p.label) {
@@ -233,9 +264,7 @@
     if (p.label.material.map) p.label.material.map.dispose();
     p.label.material.map = new THREE.CanvasTexture(c);
     p.label.material.needsUpdate = true;
-    var sw = Math.max(50, Math.min(Math.max(p.fx, p.fz), 180));
-    p.label.scale.set(sw, sw / 4, 1);
-    p.label.position.set(0, p.h / 2 + sw / 8 + 4, 0);
+    labelTransform(p);
   }
 
   function rebuildMesh(p) {
@@ -259,13 +288,39 @@
     m.add(p.edges);
   }
 
+  function syncHandles() {
+    var p = selected;
+    if (!p || !p.valid || !p.mesh) { handleGroup.visible = false; return; }
+    handleGroup.visible = true;
+    var y = p.y + p.h;
+    handleMeshes.forEach(function (m) {
+      if (m.userData.top) m.position.set(p.x, y, p.z);
+      else m.position.set(p.x + m.userData.sx * p.fx / 2, y, p.z + m.userData.sz * p.fz / 2);
+    });
+    handleGroup.updateMatrixWorld(true);
+  }
+
+  // Mantiene los handles con el mismo tamaño aparente en pantalla.
+  function sizeHandles() {
+    if (!handleGroup.visible) return;
+    var h = cv.clientHeight;
+    if (!h) return;
+    var f = 2 * Math.tan(camera.fov * Math.PI / 360);
+    handleMeshes.forEach(function (m) {
+      var d = camera.position.distanceTo(m.position);
+      m.scale.setScalar(Math.max(0.5, HANDLE_R * f * d / h));
+    });
+  }
+
   function syncMeshes() {
     pieces.forEach(function (p) {
       if (!p.mesh) return;
       p.mesh.visible = p.valid;
       p.mesh.position.set(p.x, p.y + p.h / 2, p.z);
       p.mesh.rotation.y = p.rot ? Math.PI / 2 : 0;
+      p.mesh.updateMatrixWorld(true);
     });
+    syncHandles();
   }
 
   // ---------- Física simple: colisión, apoyo, caída ----------
@@ -403,6 +458,7 @@
 
   // ---------- Selección y alta/baja ----------
   function select(p) {
+    if (drag && drag.kind !== 'move' && drag.p !== p) cancelResize();
     if (selected && selected.mesh) selected.mesh.material.emissive.setHex(0x000000);
     if (selected && selected.tr) selected.tr.classList.remove('sel');
     selected = p;
@@ -411,6 +467,7 @@
       if (p.tr) p.tr.classList.add('sel');
     }
     $('btn-rot').disabled = !p;
+    syncHandles();
   }
 
   function applyDims(p) {
@@ -444,6 +501,7 @@
       return i;
     }
     var tdName = document.createElement('td');
+    p.inputs = {};
     var sw = document.createElement('span');
     sw.className = 'sw';
     sw.style.background = '#' + p.color.getHexString();
@@ -461,6 +519,7 @@
       i.min = '0'; i.step = 'any';
       i.value = String(p[k]);
       i.addEventListener('input', function () { p[k] = i.valueAsNumber; applyDims(p); });
+      p.inputs[k] = i;
       td.appendChild(i);
       tr.appendChild(td);
     });
@@ -486,6 +545,13 @@
   }
 
   function removePiece(p) {
+    if (drag && drag.p === p) {
+      try { cv.releasePointerCapture(drag.id); } catch (err) { /* nada */ }
+      drag = null;
+      if (controls) controls.enabled = true;
+      cv.style.cursor = '';
+      paintHandles(0x1f6feb);
+    }
     if (selected === p) select(null);
     var i = pieces.indexOf(p);
     if (i >= 0) pieces.splice(i, 1);
@@ -517,6 +583,114 @@
     }
     p.x = c[0]; p.z = c[1];
     settle(null); syncMeshes(); updateStats();
+  }
+
+  // ---------- Redimensionado con handles ----------
+  function clamp(v, a, b) { return Math.min(Math.max(v, a), b); }
+
+  function snapshot(p) {
+    return { l: p.l, w: p.w, h: p.h, fx: p.fx, fz: p.fz, x: p.x, z: p.z, y: p.y };
+  }
+
+  function restore(p, s) {
+    p.l = s.l; p.w = s.w; p.h = s.h;
+    p.fx = s.fx; p.fz = s.fz;
+    p.x = s.x; p.z = s.z; p.y = s.y;
+  }
+
+  // Escribe las medidas en la tabla sin disparar el evento input (evita recursión).
+  function syncRow(p) {
+    if (!p.inputs) return;
+    ['l', 'w', 'h'].forEach(function (k) {
+      var el = p.inputs[k];
+      if (el && el.value !== String(p[k])) el.value = String(p[k]);
+    });
+  }
+
+  function refreshResize(p) {
+    rebuildMesh(p);
+    labelTransform(p);
+    syncRow(p);
+    syncMeshes();
+    updateStats();
+  }
+
+  function paintHandles(hex) {
+    handleMeshes.forEach(function (m) { m.material.color.setHex(hex); });
+  }
+
+  function worldPerPixel(pos) {
+    var h = cv.clientHeight;
+    if (!h) return 1;
+    return 2 * Math.tan(camera.fov * Math.PI / 360) * camera.position.distanceTo(pos) / h;
+  }
+
+  function resizeVertex(e) {
+    var p = drag.p;
+    setRay(e.clientX, e.clientY);
+    if (!raycaster.ray.intersectPlane(drag.plane, hitPoint)) return;
+    var sx = drag.sx, sz = drag.sz, g = drag.min;
+    var cx = clamp(hitPoint.x + drag.offX, -floorW / 2, floorW / 2);
+    var cz = clamp(hitPoint.z + drag.offZ, -floorD / 2, floorD / 2);
+    // Snap absoluto: la esquina arrastrada cae en la grilla medida desde el borde del piso.
+    cx = -floorW / 2 + Math.round((cx + floorW / 2) / g) * g;
+    cz = -floorD / 2 + Math.round((cz + floorD / 2) / g) * g;
+    cx = clamp(cx, -floorW / 2, floorW / 2);
+    cz = clamp(cz, -floorD / 2, floorD / 2);
+    var roomX = sx > 0 ? floorW / 2 - drag.anchorX : drag.anchorX + floorW / 2;
+    var roomZ = sz > 0 ? floorD / 2 - drag.anchorZ : drag.anchorZ + floorD / 2;
+    var fx = clamp(sx * (cx - drag.anchorX), drag.min, roomX);
+    var fz = clamp(sz * (cz - drag.anchorZ), drag.min, roomZ);
+    fx = Math.round(fx * 100) / 100;
+    fz = Math.round(fz * 100) / 100;
+    if (p.rot) { p.w = fx; p.l = fz; } else { p.l = fx; p.w = fz; }
+    p.fx = fx; p.fz = fz;
+    p.x = drag.anchorX + sx * fx / 2;
+    p.z = drag.anchorZ + sz * fz / 2;
+    if (collides(p, p.x, p.y, p.z)) {
+      restore(p, drag.last);
+      paintHandles(0x1f6feb);
+      drag.handle.material.color.setHex(0xd92d20);
+      refreshResize(p);
+      return;
+    }
+    drag.last = snapshot(p);
+    paintHandles(0x1f6feb);
+    refreshResize(p);
+  }
+
+  function resizeHeight(e) {
+    var p = drag.p;
+    var raw = drag.h0 + (drag.y0 - e.clientY) * drag.wpp;
+    var nh = Math.round(raw / drag.min) * drag.min;
+    nh = Math.max(drag.min, nh);
+    p.h = nh;
+    if (collides(p, p.x, p.y, p.z)) {
+      p.h = drag.last.h;
+      paintHandles(0x1f6feb);
+      drag.handle.material.color.setHex(0xd92d20);
+      refreshResize(p);
+      return;
+    }
+    drag.last = snapshot(p);
+    paintHandles(0x1f6feb);
+    refreshResize(p);
+  }
+
+  function cancelResize() {
+    if (!drag || drag.kind === 'move') return;
+    var p = drag.p, start = drag.start;
+    try { cv.releasePointerCapture(drag.id); } catch (err) { /* nada */ }
+    drag = null;
+    restore(p, start);
+    rebuildMesh(p);
+    updateLabel(p);
+    syncRow(p);
+    syncMeshes();
+    updateStats();
+    paintHandles(0x1f6feb);
+    cv.style.cursor = '';
+    if (controls) controls.enabled = true;
   }
 
   // ---------- Piso ----------
@@ -564,6 +738,26 @@
     raycaster.setFromCamera(ndc, camera);
   }
 
+  function pickHandle(clientX, clientY) {
+    if (!handleGroup.visible || !selected || !selected.valid) return null;
+    handleGroup.updateMatrixWorld(true);
+    setRay(clientX, clientY);
+    var hits = raycaster.intersectObjects(handleMeshes, false);
+    if (!hits.length) return null;
+    if (hits.length === 1) return hits[0];
+    // Si los handles se superponen (vistas chicas), gana el centro más cercano al puntero.
+    var r = cv.getBoundingClientRect();
+    var best = null, bestD = Infinity;
+    hits.forEach(function (h) {
+      var v = h.object.getWorldPosition(new THREE.Vector3()).project(camera);
+      var sx = r.left + (v.x + 1) / 2 * r.width;
+      var sy = r.top + (1 - v.y) / 2 * r.height;
+      var d = (sx - clientX) * (sx - clientX) + (sy - clientY) * (sy - clientY);
+      if (d < bestD) { bestD = d; best = h; }
+    });
+    return best;
+  }
+
   function pick(clientX, clientY) {
     setRay(clientX, clientY);
     var meshes = [];
@@ -575,12 +769,50 @@
   function onDown(e) {
     if (!e.isPrimary || drag) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
+    var hh = pickHandle(e.clientX, e.clientY);
+    if (hh) {
+      var ph = selected;
+      if (!ph || !ph.valid) return;
+      var snapH = $('snap').checked;
+      var top = hh.object.userData.top;
+      var sx = hh.object.userData.sx;
+      var sz = hh.object.userData.sz;
+      var plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -ph.y);
+      var startHit = new THREE.Vector3();
+      if (!top && !raycaster.ray.intersectPlane(plane, startHit)) return;
+      if (controls) controls.enabled = false;
+      drag = {
+        kind: top ? 'height' : 'vertex',
+        p: ph,
+        id: e.pointerId,
+        handle: hh.object,
+        start: snapshot(ph),
+        last: snapshot(ph),
+        sx: sx,
+        sz: sz,
+        anchorX: ph.x - sx * ph.fx / 2,
+        anchorZ: ph.z - sz * ph.fz / 2,
+        // El handle está en el techo; compensamos para que no salte al plano de la base.
+        offX: top ? 0 : ph.x + sx * ph.fx / 2 - startHit.x,
+        offZ: top ? 0 : ph.z + sz * ph.fz / 2 - startHit.z,
+        plane: plane,
+        y0: e.clientY,
+        h0: ph.h,
+        wpp: worldPerPixel(hh.object.position),
+        min: snapH ? GRID : 1
+      };
+      paintHandles(0x1f6feb);
+      try { cv.setPointerCapture(e.pointerId); } catch (err) { /* sin captura */ }
+      e.preventDefault();
+      return;
+    }
     var hit = pick(e.clientX, e.clientY);
     if (!hit) { select(null); return; }
     if (controls) controls.enabled = false;
     var p = hit.object.userData.piece;
     select(p);
     drag = {
+      kind: 'move',
       p: p,
       id: e.pointerId,
       plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -hit.point.y),
@@ -591,8 +823,18 @@
     e.preventDefault();
   }
 
+  function hover(e) {
+    var h = pickHandle(e.clientX, e.clientY);
+    if (h) cv.style.cursor = h.object.userData.top ? 'ns-resize' : 'nwse-resize';
+    else if (pick(e.clientX, e.clientY)) cv.style.cursor = 'grab';
+    else cv.style.cursor = '';
+  }
+
   function onMove(e) {
-    if (!drag || e.pointerId !== drag.id) return;
+    if (!drag) { hover(e); return; }
+    if (e.pointerId !== drag.id) return;
+    if (drag.kind === 'vertex') { resizeVertex(e); return; }
+    if (drag.kind === 'height') { resizeHeight(e); return; }
     setRay(e.clientX, e.clientY);
     if (!raycaster.ray.intersectPlane(drag.plane, hitPoint)) return;
     var p = drag.p;
@@ -611,23 +853,33 @@
   function endDrag(e) {
     if (drag && (!e || e.pointerId === undefined || e.pointerId === drag.id)) {
       try { cv.releasePointerCapture(drag.id); } catch (err) { /* nada */ }
+      var p = drag.p;
+      var resized = drag.kind !== 'move';
       drag = null;
+      if (resized && p) {
+        paintHandles(0x1f6feb);
+        updateLabel(p);
+        syncRow(p);
+      }
       settle(null); syncMeshes(); updateStats();
     }
+    cv.style.cursor = '';
     if (controls && !drag) controls.enabled = true;
   }
 
-  // Bloquea la órbita cuando el toque/clic cae sobre una pieza (se registra antes que OrbitControls).
+  // Bloquea la órbita cuando el toque/clic cae sobre una pieza o un handle
+  // (se registra antes que OrbitControls).
   function guard(e) {
     if (!controls || e.button > 0) return;
     var t = e.touches && e.touches[0] ? e.touches[0] : e;
-    if (pick(t.clientX, t.clientY)) controls.enabled = false;
+    if (pickHandle(t.clientX, t.clientY) || pick(t.clientX, t.clientY)) controls.enabled = false;
   }
 
   cv.addEventListener('pointerdown', onDown, true);
   cv.addEventListener('mousedown', guard, true);
   cv.addEventListener('touchstart', guard, true);
   cv.addEventListener('pointermove', onMove);
+  cv.addEventListener('pointerleave', function () { if (!drag) cv.style.cursor = ''; });
   window.addEventListener('pointerup', endDrag);
   window.addEventListener('pointercancel', endDrag);
   window.addEventListener('mouseup', function () { if (controls && !drag) controls.enabled = true; });
@@ -646,6 +898,11 @@
   $('fondo').addEventListener('input', applyFloor);
 
   document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && drag && drag.kind !== 'move') {
+      cancelResize();
+      e.preventDefault();
+      return;
+    }
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
     var t = e.target;
     if (t && (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && t.type !== 'checkbox'))) return;
@@ -665,6 +922,7 @@
   function animate() {
     requestAnimationFrame(animate);
     controls.update();
+    sizeHandles();
     renderer.render(scene, camera);
   }
 
