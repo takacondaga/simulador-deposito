@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador de depósito</title>
+<style>
+  :root { --ink:#1c2330; --mut:#5d6b7e; --line:#d6dce5; --acc:#1f6feb; --bad:#d92d20; --bg:#f4f6f9; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 14px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--bg); }
+  #app { display: flex; height: 100vh; height: 100dvh; }
+  #panel { width: 450px; max-width: 50%; min-width: 340px; min-height: 0; overflow: auto; padding: 14px; background: #fff; border-right: 1px solid var(--line); }
+  #view { flex: 1; position: relative; min-width: 0; min-height: 0; background: #eef1f5; }
+  #view canvas { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; -webkit-user-select: none; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  h2 { font-size: 12px; margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .06em; color: var(--mut); }
+  label { display: block; font-size: 12px; color: var(--mut); }
+  input[type=number], input[type=text] { width: 100%; padding: 6px 7px; border: 1px solid var(--line); border-radius: 6px; font: inherit; color: var(--ink); background: #fff; }
+  input:focus { outline: 2px solid var(--acc); outline-offset: -1px; }
+  input.bad { border-color: var(--bad); background: #fff3f1; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .chk { display: flex; gap: 8px; align-items: center; color: var(--ink); font-size: 13px; margin: 6px 0; }
+  .chk input { width: auto; margin: 0; }
+  button { font: inherit; padding: 7px 11px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--acc); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--acc); border-color: var(--acc); color: #fff; }
+  .stats { border: 1px solid var(--line); border-radius: 8px; padding: 4px 12px; background: #fafbfc; }
+  .stats div { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .stats div:last-child { border-bottom: 0; }
+  .stats span { color: var(--mut); }
+  .stats .total { font-size: 17px; }
+  .stats .total b { color: var(--acc); }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th { font-size: 11px; font-weight: 600; text-align: left; color: var(--mut); padding: 0 3px 4px; }
+  td { padding: 3px; vertical-align: middle; }
+  th:nth-child(1), td:nth-child(1) { width: 36%; }
+  th:nth-child(5), td:nth-child(5) { width: 30px; }
+  td:nth-child(1) { display: flex; align-items: center; gap: 5px; }
+  td:nth-child(1) input { min-width: 0; }
+  .sw { flex: none; width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(0,0,0,.25); }
+  tr.sel td { background: #eaf2ff; }
+  tr.bad .dim:invalid, tr.bad .dim { border-color: var(--bad); }
+  .del { padding: 3px 8px; line-height: 1; color: var(--bad); }
+  #btn-add { margin-top: 8px; }
+  .toolbar { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; }
+  .help { position: absolute; right: 10px; bottom: 8px; max-width: 70%; text-align: right; font-size: 11px; color: var(--mut); pointer-events: none; }
+  #msg { position: absolute; left: 10px; bottom: 10px; background: #1c2330; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #msg.show { opacity: 1; }
+  .fail { padding: 20px; color: var(--bad); }
+  @media (max-width: 820px) {
+    #app { flex-direction: column; }
+    #panel { order: 2; width: 100%; max-width: none; min-width: 0; flex: 1; border-right: 0; border-top: 1px solid var(--line); }
+    #view { order: 1; flex: none; height: 46vh; height: 46dvh; }
+    .help { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside id="panel">
+    <h1>Simulador de depósito</h1>
+
+    <h2>Piso del depósito</h2>
+    <div class="grid2">
+      <label>Frente (m)<input id="frente" type="number" min="1" max="500" step="0.1" value="6"></label>
+      <label>Fondo (m)<input id="fondo" type="number" min="1" max="500" step="0.1" value="8"></label>
+    </div>
+
+    <h2>Precio</h2>
+    <label>Precio por m² ($)<input id="precio" type="number" min="0" step="any" value="0"></label>
+
+    <h2>Resultado</h2>
+    <div class="stats">
+      <div><span>Piso</span><b id="s-piso"></b></div>
+      <div><span>Piezas (apiladas)</span><b id="s-n"></b></div>
+      <div><span>Superficie necesaria</span><b id="s-area"></b></div>
+      <div><span>Superficie a facturar</span><b id="s-fact"></b></div>
+      <div class="total"><span>Precio total</span><b id="s-total"></b></div>
+    </div>
+
+    <h2>Opciones</h2>
+    <label class="chk"><input type="checkbox" id="apilar"> Modo apilar (o mantener Shift al arrastrar)</label>
+    <label class="chk"><input type="checkbox" id="snap" checked> Ajustar a grilla de 10 cm</label>
+    <button type="button" id="btn-rot" disabled>Rotar 90° (tecla R)</button>
+
+    <h2>Piezas (medidas en cm)</h2>
+    <table>
+      <thead>
+        <tr><th>Nombre</th><th>Largo</th><th>Ancho</th><th>Alto</th><th></th></tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <button type="button" id="btn-add" class="primary">Agregar fila</button>
+  </aside>
+
+  <main id="view">
+    <div class="toolbar">
+      <button type="button" id="btn-3d">Vista 3D</button>
+      <button type="button" id="btn-top">Vista cenital</button>
+    </div>
+    <div class="help">Arrastrar pieza: mover. Arrastrar fondo: orbitar. Rueda: zoom. Botón derecho: desplazar.</div>
+    <div id="msg"></div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var view = $('view');
+
+  if (typeof THREE === 'undefined' || !THREE.OrbitControls) {
+    view.innerHTML = '<p class="fail">No se pudo cargar la librería 3D (three.js). Se necesita conexión a internet para abrir este archivo.</p>';
+    return;
+  }
+
+  // ---------- Estado ----------
+  var EPS = 0.01;        // tolerancia (cm)
+  var GRID = 10;         // grilla de ajuste (cm)
+  var floorW = 600;      // frente en cm (eje X)
+  var floorD = 800;      // fondo en cm (eje Z)
+  var topView = false;
+  var pieces = [];
+  var nextId = 1;
+  var selected = null;
+  var drag = null;
+  var controls = null;
+  var flashTimer = 0;
+  var tbody = $('tbody');
+
+  var nf = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  var sup = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 3 });
+  var money = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' });
+  var ent = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
+  var ok = function (v) { return Number.isFinite(v) && v > 0; };
+
+  // ---------- Escena ----------
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xeef1f5);
+  var camera = new THREE.PerspectiveCamera(45, 1, 1, 200000);
+  var renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  view.insertBefore(renderer.domElement, view.firstChild);
+  var cv = renderer.domElement;
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+  var sun = new THREE.DirectionalLight(0xffffff, 0.75);
+  sun.position.set(300, 800, 500);
+  scene.add(sun);
+
+  var raycaster = new THREE.Raycaster();
+  var ndc = new THREE.Vector2();
+  var hitPoint = new THREE.Vector3();
+
+  var floorGroup = new THREE.Group();
+  scene.add(floorGroup);
+
+  function buildFloor() {
+    var old = floorGroup.children.slice();
+    old.forEach(function (c) {
+      floorGroup.remove(c);
+      if (c.geometry) c.geometry.dispose();
+      if (c.material) c.material.dispose();
+    });
+    var plane = new THREE.Mesh(
+      new THREE.PlaneGeometry(floorW, floorD),
+      new THREE.MeshStandardMaterial({ color: 0xdfe5ec, roughness: 1 })
+    );
+    plane.rotation.x = -Math.PI / 2;
+    plane.position.y = -0.5;
+    floorGroup.add(plane);
+
+    var pts = [];
+    var x0 = -floorW / 2, z0 = -floorD / 2, x, z;
+    for (x = 0; x <= floorW + EPS; x += 100) pts.push(x0 + x, 0, z0, x0 + x, 0, z0 + floorD);
+    for (z = 0; z <= floorD + EPS; z += 100) pts.push(x0, 0, z0 + z, x0 + floorW, 0, z0 + z);
+    pts.push(x0 + floorW, 0, z0, x0 + floorW, 0, z0 + floorD);
+    pts.push(x0, 0, z0 + floorD, x0 + floorW, 0, z0 + floorD);
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    floorGroup.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x9aa7b6 })));
+  }
+
+  // ---------- Geometría de piezas ----------
+  // l: largo (eje X con rot=0), w: ancho (eje Z con rot=0), h: alto (eje Y).
+  // x, z: centro de la huella. y: altura de la base.
+  function derive(p) {
+    p.fx = p.rot ? p.w : p.l;
+    p.fz = p.rot ? p.l : p.w;
+  }
+
+  function makePiece() {
+    var id = nextId++;
+    var p = {
+      id: id, name: 'Pieza ' + id,
+      l: 100, w: 100, h: 100,
+      x: 0, y: 0, z: 0, rot: 0,
+      fx: 100, fz: 100,
+      valid: true, placed: false,
+      mesh: null, edges: null, label: null, tr: null,
+      color: new THREE.Color().setHSL((id * 0.137) % 1, 0.55, 0.58)
+    };
+    return p;
+  }
+
+  function updateLabel(p) {
+    if (!p.mesh) return;
+    if (!p.label) {
+      p.label = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true }));
+      p.mesh.add(p.label);
+    }
+    var c = document.createElement('canvas');
+    c.width = 512; c.height = 128;
+    var g = c.getContext('2d');
+    g.fillStyle = 'rgba(25,30,38,0.82)';
+    g.fillRect(0, 0, 512, 128);
+    var txt = p.name && p.name.trim() ? p.name.trim() : '(sin nombre)';
+    var size = 64;
+    g.font = 'bold ' + size + 'px sans-serif';
+    while (size > 18 && g.measureText(txt).width > 488) {
+      size -= 2;
+      g.font = 'bold ' + size + 'px sans-serif';
+    }
+    g.fillStyle = '#ffffff';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(txt, 256, 66);
+    if (p.label.material.map) p.label.material.map.dispose();
+    p.label.material.map = new THREE.CanvasTexture(c);
+    p.label.material.needsUpdate = true;
+    var sw = Math.max(50, Math.min(Math.max(p.fx, p.fz), 180));
+    p.label.scale.set(sw, sw / 4, 1);
+    p.label.position.set(0, p.h / 2 + sw / 8 + 4, 0);
+  }
+
+  function rebuildMesh(p) {
+    if (!p.mesh) {
+      p.mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.75, metalness: 0.05 })
+      );
+      p.mesh.userData.piece = p;
+      scene.add(p.mesh);
+    }
+    var m = p.mesh;
+    m.geometry.dispose();
+    m.geometry = new THREE.BoxGeometry(p.l, p.h, p.w);
+    if (p.edges) {
+      m.remove(p.edges);
+      p.edges.geometry.dispose();
+      p.edges.material.dispose();
+    }
+    p.edges = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), new THREE.LineBasicMaterial({ color: 0x222831 }));
+    m.add(p.edges);
+  }
+
+  function syncMeshes() {
+    pieces.forEach(function (p) {
+      if (!p.mesh) return;
+      p.mesh.visible = p.valid;
+      p.mesh.position.set(p.x, p.y + p.h / 2, p.z);
+      p.mesh.rotation.y = p.rot ? Math.PI / 2 : 0;
+    });
+  }
+
+  // ---------- Física simple: colisión, apoyo, caída ----------
+  // Solapamiento de huellas en planta (estricto).
+  function ov(p, x, z, q) {
+    return Math.abs(x - q.x) < (p.fx + q.fx) / 2 - EPS &&
+           Math.abs(z - q.z) < (p.fz + q.fz) / 2 - EPS;
+  }
+
+  // Colisión 3D de la pieza p ubicada con base en y, centro (x, z).
+  function collides(p, x, y, z) {
+    for (var i = 0; i < pieces.length; i++) {
+      var q = pieces[i];
+      if (q === p || !q.valid) continue;
+      if (ov(p, x, z, q) && y < q.y + q.h - EPS && q.y < y + p.h - EPS) return true;
+    }
+    return false;
+  }
+
+  // Piezas que descansan (directa o indirectamente) sobre p.
+  function stackedOn(p) {
+    var set = new Set();
+    var stack = [p];
+    while (stack.length) {
+      var a = stack.pop();
+      for (var i = 0; i < pieces.length; i++) {
+        var q = pieces[i];
+        if (!q.valid || q === p || set.has(q)) continue;
+        if (Math.abs(q.y - (a.y + a.h)) < EPS && ov(a, a.x, a.z, q)) {
+          set.add(q);
+          stack.push(q);
+        }
+      }
+    }
+    return set;
+  }
+
+  // Altura de apoyo al apilar: el centro de p debe caer dentro de la huella de la pieza inferior.
+  function supportY(p, x, z, banned) {
+    var y = 0;
+    for (var i = 0; i < pieces.length; i++) {
+      var q = pieces[i];
+      if (q === p || !q.valid || banned.has(q)) continue;
+      if (Math.abs(x - q.x) <= q.fx / 2 && Math.abs(z - q.z) <= q.fz / 2) {
+        y = Math.max(y, q.y + q.h);
+      }
+    }
+    return y;
+  }
+
+  // Las piezas caen hasta apoyarse en lo que tengan debajo (o en el piso).
+  function settle(fixed) {
+    var list = pieces.filter(function (q) { return q.valid; }).sort(function (a, b) { return a.y - b.y; });
+    var done = [];
+    list.forEach(function (p) {
+      if (p !== fixed) {
+        var old = p.y, ny = 0;
+        for (var i = 0; i < done.length; i++) {
+          var q = done[i];
+          if (ov(p, p.x, p.z, q) && q.y + q.h <= old + EPS) ny = Math.max(ny, q.y + q.h);
+        }
+        p.y = ny;
+      }
+      done.push(p);
+    });
+  }
+
+  // Ajusta (x, z) a la grilla y al piso. Devuelve [x, z] del centro.
+  function fit(p, x, z, snap) {
+    var u = x - p.fx / 2 + floorW / 2;
+    var v = z - p.fz / 2 + floorD / 2;
+    if (snap) {
+      u = Math.round(u / GRID) * GRID;
+      v = Math.round(v / GRID) * GRID;
+    }
+    if (p.fx >= floorW) u = (floorW - p.fx) / 2; else u = Math.min(Math.max(u, 0), floorW - p.fx);
+    if (p.fz >= floorD) v = (floorD - p.fz) / 2; else v = Math.min(Math.max(v, 0), floorD - p.fz);
+    return [u + p.fx / 2 - floorW / 2, v + p.fz / 2 - floorD / 2];
+  }
+
+  function tryPlace(p, x, z, stackNow, banned, snap) {
+    var c = fit(p, x, z, snap);
+    var y = stackNow ? supportY(p, c[0], c[1], banned) : 0;
+    if (collides(p, c[0], y, c[1])) return false;
+    p.x = c[0]; p.y = y; p.z = c[1];
+    return true;
+  }
+
+  // Primer lugar libre sobre el piso; si no hay, se apila sobre lo que haya.
+  function placeNew(p) {
+    var step = Math.max(GRID, Math.ceil(Math.sqrt(floorW * floorD / 40000) / GRID) * GRID);
+    var xs = [], zs = [], u, v;
+    if (p.fx >= floorW) xs.push(0); else for (u = 0; u <= floorW - p.fx + EPS; u += step) xs.push(-floorW / 2 + p.fx / 2 + u);
+    if (p.fz >= floorD) zs.push(0); else for (v = 0; v <= floorD - p.fz + EPS; v += step) zs.push(-floorD / 2 + p.fz / 2 + v);
+    for (var i = 0; i < zs.length; i++) {
+      for (var j = 0; j < xs.length; j++) {
+        if (!collides(p, xs[j], 0, zs[i])) { p.x = xs[j]; p.y = 0; p.z = zs[i]; return; }
+      }
+    }
+    var x = xs[0], z = zs[0], y = 0;
+    pieces.forEach(function (q) {
+      if (q !== p && q.valid && ov(p, x, z, q)) y = Math.max(y, q.y + q.h);
+    });
+    p.x = x; p.y = y; p.z = z;
+  }
+
+  // ---------- Resultados ----------
+  function updateStats() {
+    var area = 0, n = 0, st = 0;
+    pieces.forEach(function (p) {
+      if (!p.valid) return;
+      n++;
+      if (p.y < EPS) area += p.fx * p.fz; else st++;
+    });
+    var m2 = area / 10000;
+    // No se facturan fracciones de m²: todo excedente va al entero siguiente.
+    // El epsilon absorbe el ruido de coma flotante (2,0000000000000004 -> 2).
+    var facturables = m2 > 0 ? Math.max(1, Math.ceil(m2 - 1e-9)) : 0;
+    var price = Number($('precio').value);
+    if (!Number.isFinite(price) || price < 0) price = 0;
+    $('s-piso').textContent = nf.format(floorW / 100) + ' × ' + nf.format(floorD / 100) + ' m = ' + nf.format(floorW * floorD / 10000) + ' m²';
+    $('s-n').textContent = n + ' (' + st + ')';
+    $('s-area').textContent = sup.format(m2) + ' m²';
+    $('s-fact').textContent = ent.format(facturables) + ' m²';
+    $('s-total').textContent = money.format(facturables * price);
+  }
+
+  function flash(msg) {
+    var el = $('msg');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(function () { el.classList.remove('show'); }, 2500);
+  }
+
+  // ---------- Selección y alta/baja ----------
+  function select(p) {
+    if (selected && selected.mesh) selected.mesh.material.emissive.setHex(0x000000);
+    if (selected && selected.tr) selected.tr.classList.remove('sel');
+    selected = p;
+    if (p) {
+      if (p.mesh) p.mesh.material.emissive.setHex(0x333333);
+      if (p.tr) p.tr.classList.add('sel');
+    }
+    $('btn-rot').disabled = !p;
+  }
+
+  function applyDims(p) {
+    p.valid = ok(p.l) && ok(p.w) && ok(p.h);
+    p.tr.classList.toggle('bad', !p.valid);
+    if (!p.valid) {
+      if (p.mesh) p.mesh.visible = false;
+      settle(null); syncMeshes(); updateStats();
+      return;
+    }
+    derive(p);
+    rebuildMesh(p);
+    updateLabel(p);
+    if (selected === p) p.mesh.material.emissive.setHex(0x333333);
+    if (!p.placed) {
+      placeNew(p);
+      p.placed = true;
+    } else {
+      var c = fit(p, p.x, p.z, false);
+      p.x = c[0]; p.z = c[1];
+      if (collides(p, p.x, p.y, p.z)) placeNew(p);
+    }
+    settle(null); syncMeshes(); updateStats();
+  }
+
+  function buildRow(p) {
+    var tr = document.createElement('tr');
+    function mk(type, cls) {
+      var i = document.createElement('input');
+      i.type = type; i.className = cls;
+      return i;
+    }
+    var tdName = document.createElement('td');
+    var sw = document.createElement('span');
+    sw.className = 'sw';
+    sw.style.background = '#' + p.color.getHexString();
+    var nm = mk('text', 'nm');
+    nm.value = p.name;
+    nm.placeholder = 'Nombre';
+    nm.addEventListener('input', function () { p.name = nm.value; updateLabel(p); });
+    tdName.appendChild(sw);
+    tdName.appendChild(nm);
+    tr.appendChild(tdName);
+
+    ['l', 'w', 'h'].forEach(function (k) {
+      var td = document.createElement('td');
+      var i = mk('number', 'dim');
+      i.min = '0'; i.step = 'any';
+      i.value = String(p[k]);
+      i.addEventListener('input', function () { p[k] = i.valueAsNumber; applyDims(p); });
+      td.appendChild(i);
+      tr.appendChild(td);
+    });
+
+    var tdDel = document.createElement('td');
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'del'; b.textContent = '×'; b.title = 'Eliminar fila';
+    b.addEventListener('click', function () { removePiece(p); });
+    tdDel.appendChild(b);
+    tr.appendChild(tdDel);
+
+    tr.addEventListener('focusin', function () { if (selected !== p) select(p); });
+    p.tr = tr;
+    tbody.appendChild(tr);
+  }
+
+  function addPiece() {
+    var p = makePiece();
+    pieces.push(p);
+    buildRow(p);
+    applyDims(p);
+    select(p);
+  }
+
+  function removePiece(p) {
+    if (selected === p) select(null);
+    var i = pieces.indexOf(p);
+    if (i >= 0) pieces.splice(i, 1);
+    if (p.mesh) {
+      scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mesh.material.dispose();
+      if (p.edges) { p.edges.geometry.dispose(); p.edges.material.dispose(); }
+      if (p.label) {
+        if (p.label.material.map) p.label.material.map.dispose();
+        p.label.material.dispose();
+      }
+    }
+    p.tr.remove();
+    settle(null); syncMeshes(); updateStats();
+  }
+
+  function rotateSel() {
+    var p = selected;
+    if (!p || !p.valid) return;
+    p.rot = 1 - p.rot;
+    derive(p);
+    var c = fit(p, p.x, p.z, false);
+    if (collides(p, c[0], p.y, c[1])) {
+      p.rot = 1 - p.rot;
+      derive(p);
+      flash('No hay espacio para rotar esa pieza.');
+      return;
+    }
+    p.x = c[0]; p.z = c[1];
+    settle(null); syncMeshes(); updateStats();
+  }
+
+  // ---------- Piso ----------
+  function fitCamera(top) {
+    topView = top;
+    var s = Math.max(floorW, floorD);
+    controls.target.set(0, 0, 0);
+    if (top) camera.position.set(0, s * 1.5, s * 0.01);
+    else camera.position.set(s * 0.55, s * 0.85, s * 0.95);
+    camera.near = Math.max(1, s / 1000);
+    camera.far = s * 20;
+    controls.minDistance = 30;
+    controls.maxDistance = s * 5;
+    camera.updateProjectionMatrix();
+    controls.update();
+  }
+
+  function applyFloor() {
+    var f = parseFloat($('frente').value);
+    var d = parseFloat($('fondo').value);
+    var okF = ok(f) && f <= 500;
+    var okD = ok(d) && d <= 500;
+    $('frente').classList.toggle('bad', !okF);
+    $('fondo').classList.toggle('bad', !okD);
+    if (!okF || !okD) return;
+    floorW = Math.round(f * 1000) / 10;
+    floorD = Math.round(d * 1000) / 10;
+    buildFloor();
+    var list = pieces.filter(function (p) { return p.valid; }).sort(function (a, b) { return a.y - b.y; });
+    list.forEach(function (p) {
+      var c = fit(p, p.x, p.z, false);
+      p.x = c[0]; p.z = c[1];
+    });
+    list.forEach(function (p) {
+      if (collides(p, p.x, p.y, p.z)) placeNew(p);
+    });
+    settle(null); syncMeshes(); updateStats();
+    fitCamera(topView);
+  }
+
+  // ---------- Interacción 3D ----------
+  function setRay(clientX, clientY) {
+    var r = cv.getBoundingClientRect();
+    ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+  }
+
+  function pick(clientX, clientY) {
+    setRay(clientX, clientY);
+    var meshes = [];
+    pieces.forEach(function (p) { if (p.valid && p.mesh) meshes.push(p.mesh); });
+    var hits = raycaster.intersectObjects(meshes, false);
+    return hits.length ? hits[0] : null;
+  }
+
+  function onDown(e) {
+    if (!e.isPrimary || drag) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    var hit = pick(e.clientX, e.clientY);
+    if (!hit) { select(null); return; }
+    if (controls) controls.enabled = false;
+    var p = hit.object.userData.piece;
+    select(p);
+    drag = {
+      p: p,
+      id: e.pointerId,
+      plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -hit.point.y),
+      offX: p.x - hit.point.x,
+      offZ: p.z - hit.point.z
+    };
+    try { cv.setPointerCapture(e.pointerId); } catch (err) { /* sin captura */ }
+    e.preventDefault();
+  }
+
+  function onMove(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    setRay(e.clientX, e.clientY);
+    if (!raycaster.ray.intersectPlane(drag.plane, hitPoint)) return;
+    var p = drag.p;
+    var nx = hitPoint.x + drag.offX;
+    var nz = hitPoint.z + drag.offZ;
+    var stackNow = $('apilar').checked || e.shiftKey;
+    var snap = $('snap').checked;
+    var banned = stackedOn(p);
+    if (tryPlace(p, nx, nz, stackNow, banned, snap) ||
+        tryPlace(p, nx, p.z, stackNow, banned, snap) ||
+        tryPlace(p, p.x, nz, stackNow, banned, snap)) {
+      settle(p); syncMeshes(); updateStats();
+    }
+  }
+
+  function endDrag(e) {
+    if (drag && (!e || e.pointerId === undefined || e.pointerId === drag.id)) {
+      try { cv.releasePointerCapture(drag.id); } catch (err) { /* nada */ }
+      drag = null;
+      settle(null); syncMeshes(); updateStats();
+    }
+    if (controls && !drag) controls.enabled = true;
+  }
+
+  // Bloquea la órbita cuando el toque/clic cae sobre una pieza (se registra antes que OrbitControls).
+  function guard(e) {
+    if (!controls || e.button > 0) return;
+    var t = e.touches && e.touches[0] ? e.touches[0] : e;
+    if (pick(t.clientX, t.clientY)) controls.enabled = false;
+  }
+
+  cv.addEventListener('pointerdown', onDown, true);
+  cv.addEventListener('mousedown', guard, true);
+  cv.addEventListener('touchstart', guard, true);
+  cv.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
+  window.addEventListener('mouseup', function () { if (controls && !drag) controls.enabled = true; });
+  window.addEventListener('touchend', function () { if (controls && !drag) controls.enabled = true; });
+
+  controls = new THREE.OrbitControls(camera, cv);
+  controls.maxPolarAngle = Math.PI / 2 - 0.01;
+
+  // ---------- Eventos de interfaz ----------
+  $('btn-add').addEventListener('click', addPiece);
+  $('btn-rot').addEventListener('click', rotateSel);
+  $('btn-3d').addEventListener('click', function () { fitCamera(false); });
+  $('btn-top').addEventListener('click', function () { fitCamera(true); });
+  $('precio').addEventListener('input', updateStats);
+  $('frente').addEventListener('input', applyFloor);
+  $('fondo').addEventListener('input', applyFloor);
+
+  document.addEventListener('keydown', function (e) {
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+    var t = e.target;
+    if (t && (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && t.type !== 'checkbox'))) return;
+    if (e.key === 'r' || e.key === 'R') rotateSel();
+  });
+
+  function resize() {
+    var w = view.clientWidth, h = view.clientHeight;
+    if (!w || !h) return;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(resize).observe(view);
+  window.addEventListener('resize', resize);
+
+  function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+
+  // ---------- Inicio ----------
+  buildFloor();
+  addPiece();
+  fitCamera(false);
+  resize();
+  updateStats();
+  animate();
+})();
+</script>
+</body>
+</html>
