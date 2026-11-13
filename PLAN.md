@@ -1,7 +1,7 @@
 # PLAN — Redimensionar piezas arrastrando vértices
 
 - **Proyecto:** Simulador de depósito (`simulador-deposito.html`)
-- **Estado:** implementado y verificado; pendiente commit y push
+- **Estado:** implementado, verificado y publicado en `main` (commit `e5d637c`)
 - **Creado:** 2026-11-12
 - **Última actualización:** 2026-11-12
 
@@ -228,7 +228,7 @@ hacen con páginas y scripts temporales fuera del proyecto.
 
 - [x] 8.1 Revisar el diff completo y confirmar que no hay archivos temporales ni
       cambios ajenos al plan.
-- [ ] 8.2 Commit y push a `main` en `takacondaga/simulador-deposito`, incluido
+- [x] 8.2 Commit y push a `main` en `takacondaga/simulador-deposito`, incluido
       este `PLAN.md`.
 
 **Criterios de aceptación**
@@ -269,8 +269,9 @@ hacen con páginas y scripts temporales fuera del proyecto.
 | 2026-11-12 | T2 | Picking con prioridad handle > pieza > vacío, `guard()` ampliado y cursores `nwse-resize` / `ns-resize`. Se agregó D13 para desempatar handles superpuestos. | Verificado con mouse y con punteros táctiles sintéticos. |
 | 2026-11-12 | T3 | Resize XZ anclado en el vértice opuesto, snap absoluto, mínimo y freno en el último estado válido. Se agregaron D11 (compensación de offset) y D12 (matrices al día). | Casos A–E, G, K y prueba aparte de pieza rotada: 12/12. |
 | 2026-11-12 | T4 | Resize de alto por desplazamiento vertical en píxeles, snap de 10/1 cm, mínimo y colisión. | Caso F, Esc, touch, vista cenital y piso máximo. |
-| 2026-11-12 | T5 | Esc, `pointercancel`, segundo `pointerdown` ignorado, pieza eliminada durante el arrastre y cierre con el puntero fuera del canvas. | 35/35 en el test principal. |
+| 2026-11-12 | T5 | Esc, `pointercancel`, segundo `pointerdown` ignorado, pieza eliminada durante el arrastre y cierre con el puntero fuera del canvas. | 36/36 en el test principal. |
 | 2026-11-12 | T6 | README actualizado con la sección de resize, controles, limitaciones y mapa de funciones. Se aclaró la semántica de rotación (D14). | Revisión del diff. |
 | 2026-11-12 | T7 | 70 checks en Edge headless: 36 principales, 12 de rotación, 13 extra (zoom, cenital y piso máximo) y 9 de producción. Desvío: no se extrajo una función pura; la matemática se validó con un oráculo independiente y arrastres sintéticos. | Todas las suites en verde, sin errores JS. |
 | 2026-11-12 | T7 | El arrastre sintético con `PointerEvent` resultó estable, así que T7.3 no requirió prueba manual. La cobertura táctil se hizo con `pointerType: "touch"` (vértice y alto, incluida vista cenital); no se probó en un dispositivo táctil físico. | Limitación del entorno headless, documentada. |
 | 2026-11-12 | T8 | Diff revisado: solo `simulador-deposito.html`, `README.md` y `PLAN.md`; sin hook `__dbg` ni archivos temporales en el repo. | `git status` con solo los cambios previstos; los tests viven en `%TEMP%`. |
+| 2026-11-12 | T8 | Push a `main` verificado: `d83637a..e5d637c` en `takacondaga/simulador-deposito`; el remoto quedó con el mismo contenido que el local. | `git push` sin errores y `git status -sb` sin diferencias con `origin/main`. |
