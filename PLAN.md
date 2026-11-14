@@ -1,9 +1,9 @@
 # PLAN — Redimensionar piezas arrastrando vértices
 
 - **Proyecto:** Simulador de depósito (`simulador-deposito.html`)
-- **Estado:** implementado, verificado y publicado en `main` (commit `e5d637c`)
+- **Estado:** implementado, verificado y publicado en `main` (resize, commit `e5d637c`); ampliación de proyecto implementada y verificada
 - **Creado:** 2026-11-12
-- **Última actualización:** 2026-11-12
+- **Última actualización:** 2026-11-13
 
 ## Objetivo
 
@@ -59,6 +59,19 @@ colisiona o se sale del piso, se conserva el último estado válido.
 | D12 | `syncHandles()` y `syncMeshes()` llaman a `updateMatrixWorld(true)`; `pickHandle()` también lo hace antes de lanzar el rayo | Sin matrices actualizadas, un clic inmediato después de mover un handle por código podía fallar. |
 | D13 | Si varios handles se superponen en pantalla, gana el centro proyectado más cercano al puntero | En vistas chicas los handles se solapan y el orden del rayo elegía el equivocado (por ejemplo, el de alto al hacer hover en un vértice). |
 | D14 | La rotación de 90° no cambia las columnas Largo/Ancho de la tabla: solo intercambia `fx/fz` | Aclara la semántica de D10 y evita expectativas erróneas en la documentación y en las pruebas. |
+
+### Decisiones de la ampliación (2026-11-13)
+
+| ID | Decisión | Motivo |
+|---|---|---|
+| D15 | El piso se carga en **metros enteros** (1 a 500), con `step="1"`, flechas de ±1 m y validación `Number.isInteger`. Un valor decimal, vacío o fuera de rango marca el campo en rojo y **no** cambia el piso vigente. | Evita el truncado silencioso de `parseFloat("6,5")` y cumple el pedido de cambiar de a 1 m. |
+| D16 | Formato de proyecto **v1**: `formato: "simulador-deposito"`, `version: 1`, `piso_m: {frente, fondo}`, `precio_m2` y `piezas[]`. | Permite detectar archivos ajenos y versionar el esquema. |
+| D17 | Unidades del JSON: piezas en **cm**; `x`/`z` = centro de la huella, `y` = altura de la base; `rotacion_grados` = 0 o 90. `piso_m` en metros enteros. Se exportan solo piezas válidas y los colores se regeneran al importar. | Conserva nombre, tamaño, posición y rotación para seguir editando; los colores son derivados y no hace falta guardarlos. |
+| D18 | Importar **reemplaza** el proyecto actual (piso, precio y piezas). Solo pide confirmación si ya hay piezas. | Evita fusiones ambiguas y protege el trabajo existente. |
+| D19 | Validación **estricta y transaccional**: se parsea y valida todo antes de tocar el estado. Límites: 5 MB, 5000 piezas, nombre ≤ 120, dimensión ≤ 1.000.000 cm, piso 1–500 entero y precio finito ≥ 0. | Un archivo inválido nunca deja el proyecto a medio importar. |
+| D20 | Normalización al importar: `fit` ajusta x/z al piso, los solapes se resuelven **apilando sobre la pieza más alta de la misma huella** y luego se aplica `settle`. Una pasada final verifica que no queden pares solapados. | Preserva x/z (a diferencia de `placeNew`) y evita el costo patológico de buscar lugar con miles de piezas amontonadas. Se registra como desvío del plan original, que proponía `placeNew`. |
+| D21 | Al terminar una importación exitosa suena un **chime corto** de dos notas con Web Audio. Si el audio no está disponible o está bloqueado, la importación termina igual en silencio. | El usuario pidió sonido "cuando pueda volver a poner input"; se interpreta como el final de la importación, cuando el proyecto ya está listo para editar. Si prefería otro momento, se puede mover la llamada. |
+| D22 | La UI de proyecto vive en el panel, con **Exportar proyecto**, **Importar proyecto** y un input de archivo oculto. El input se limpia después de elegir el archivo para poder reimportar el mismo. El archivo se descarga como `deposito-<frente>x<fondo>m-YYYYMMDD-HHMM.json`. | Flujo simple, sin dependencias, y nombre de archivo predecible. |
 
 ## Archivos a modificar
 
@@ -236,6 +249,80 @@ hacen con páginas y scripts temporales fuera del proyecto.
 - Árbol limpio después del push.
 - El remoto queda actualizado y con el mismo contenido que el local.
 
+### T9 — Piso en metros enteros
+
+- [x] 9.1 Cambiar los inputs **Frente** y **Fondo** a `step="1"`,
+      `inputmode="numeric"`, rango 1–500.
+- [x] 9.2 Reescribir `applyFloor()` con `Number` + `Number.isInteger`; si el
+      valor es decimal, vacío o está fuera de rango, marcar el campo en rojo y
+      conservar el piso vigente.
+- [x] 9.3 Convertir metros a centímetros de forma exacta (`m * 100`) y no
+      reconstruir si el piso no cambió.
+- [x] 9.4 Probar 10, 7, 6, 6,5, 0 y 501, y la regresión de reacomodo y cámara.
+
+**Criterios de aceptación**
+
+- Las flechas cambian el piso de a 1 m.
+- Un decimal nunca se trunca a un entero.
+- Un valor inválido no modifica el piso ni las piezas.
+
+### T10 — Exportación del proyecto
+
+- [x] 10.1 Agregar límites `MAX_FILE`, `MAX_PIECES`, `MAX_NAME`, `MAX_DIM` y
+      `okDim`; aplicar `okDim` a la validación de piezas.
+- [x] 10.2 Implementar `buildExportData()` con el esquema v1 (piso, precio,
+      nombre, tamaño, posición y rotación).
+- [x] 10.3 Implementar `exportProject()` con `Blob`, descarga y nombre
+      `deposito-<frente>x<fondo>m-YYYYMMDD-HHMM.json`.
+- [x] 10.4 Omitir piezas inválidas y avisar cuántas quedaron afuera.
+- [x] 10.5 Limitar nombres a 120 caracteres en la tabla y al exportar.
+
+**Criterios de aceptación**
+
+- El JSON se puede volver a importar sin perder nombres, medidas, posiciones ni
+  rotación.
+- Un proyecto sin piezas exporta `piezas: []`.
+- No se exportan piezas con medidas inválidas.
+
+### T11 — Importación validada
+
+- [x] 11.1 Agregar la sección **Proyecto** con los botones e input de archivo
+      oculto.
+- [x] 11.2 Implementar `parseProject()` con validación completa y mensajes de
+      error por campo, antes de tocar el estado.
+- [x] 11.3 Implementar `removeAllPieces()` y `applyProject()`: reemplazar piso,
+      precio y piezas; regenerar colores y filas.
+- [x] 11.4 Normalizar posiciones con `fit`, resolver solapes apilando sobre la
+      huella más alta, aplicar `settle` y una verificación final.
+- [x] 11.5 Pedir confirmación si hay piezas, resetear el input para reimportar el
+      mismo archivo y avisar éxito o error.
+
+**Criterios de aceptación**
+
+- Un archivo inválido no cambia nada del proyecto actual.
+- Un archivo válido reemplaza todo y deja las piezas editables.
+- Cancelar la confirmación conserva el proyecto.
+- El archivo supera 5 MB, tiene más de 5000 piezas o datos fuera de rango: se
+  rechaza con aviso.
+
+### T12 — Sonido, documentación y verificación
+
+- [x] 12.1 Implementar `playReadySound()` con Web Audio (dos notas cortas) y
+      fallback silencioso.
+- [x] 12.2 Actualizar el README: piso entero, guardar/retomar, esquema, unidades,
+      límites, sonido y mapa de funciones.
+- [x] 12.3 Probar con Edge headless: suite nueva de proyecto (120 checks), suites
+      de resize, rotación y extra, y verificación de producción.
+- [x] 12.4 Revisar el diff, confirmar que no haya `__dbg` en producción, commit y
+      push a `main`.
+
+**Criterios de aceptación**
+
+- La suite nueva y las suites existentes pasan sin errores JS.
+- La página de producción no contiene hooks de depuración.
+- README y PLAN describen el comportamiento real.
+- Commit subido a `main` con árbol limpio.
+
 ---
 
 ## Riesgos y mitigaciones
@@ -249,6 +336,10 @@ hacen con páginas y scripts temporales fuera del proyecto.
 | Rebote por píxeles | Bajo | Snap, mínimo y freno en el último válido (D2, D5, D6). |
 | Estado colgado tras cancelar | Bajo | Esc, `pointercancel` y limpieza en `endDrag` (T5). |
 | Proyección de cámara frágil en tests | Medio | Probar la matemática por separado y aceptar verificación manual del gesto (T7.3). |
+| JSON corrupto o incompleto al importar | Medio | Validación estricta y transaccional antes de tocar el estado (D19, T11.2). |
+| Muchas piezas amontonadas al importar | Bajo | Límite de 5000 piezas y resolución de solapes sin `placeNew` (D20). |
+| Audio bloqueado por el navegador | Bajo | `playReadySound()` falla en silencio y no interrumpe la importación (D21). |
+| Piso decimal truncado | Bajo | `Number.isInteger` y rechazo sin cambiar el piso vigente (D15, T9). |
 
 ## Definición de terminado
 
@@ -259,6 +350,16 @@ hacen con páginas y scripts temporales fuera del proyecto.
 - Sin errores de consola y sin regresiones.
 - README actualizado.
 - Commit subido a `main` y este plan con todas las tareas verificadas.
+
+### Ampliación 2026-11-13
+
+- El piso se carga y se cambia en metros enteros, de a 1 m.
+- Exportar e importar conserva piso, precio, nombres, medidas, posiciones y
+  rotación, y permite seguir editando.
+- Un archivo inválido no modifica el proyecto.
+- Al importar correctamente suena el chime de "listo para editar".
+- README y PLAN actualizados; sin hooks de depuración en producción.
+- Suite nueva de 120 checks y suites existentes en verde.
 
 ## Registro de avances y desvíos
 
@@ -275,3 +376,10 @@ hacen con páginas y scripts temporales fuera del proyecto.
 | 2026-11-12 | T7 | El arrastre sintético con `PointerEvent` resultó estable, así que T7.3 no requirió prueba manual. La cobertura táctil se hizo con `pointerType: "touch"` (vértice y alto, incluida vista cenital); no se probó en un dispositivo táctil físico. | Limitación del entorno headless, documentada. |
 | 2026-11-12 | T8 | Diff revisado: solo `simulador-deposito.html`, `README.md` y `PLAN.md`; sin hook `__dbg` ni archivos temporales en el repo. | `git status` con solo los cambios previstos; los tests viven en `%TEMP%`. |
 | 2026-11-12 | T8 | Push a `main` verificado: `d83637a..e5d637c` en `takacondaga/simulador-deposito`; el remoto quedó con el mismo contenido que el local. | `git push` sin errores y `git status -sb` sin diferencias con `origin/main`. |
+| 2026-11-13 | Plan | Ampliación acordada: piso en metros enteros, exportación/importación JSON de la organización y sonido al quedar listo para editar. | Pedido del usuario y respuestas de la consulta previa. |
+| 2026-11-13 | T9 | `applyFloor()` usa `Number.isInteger`, rango 1–500 y conversión exacta a cm; inputs con `step="1"` e `inputmode="numeric"`. Un valor inválido no cambia el piso. | Casos 10, 7, 6, 6,5, 0 y 501 verificados en Edge headless. |
+| 2026-11-13 | T10 | Esquema v1 y descarga con nombre predecible; se omiten piezas inválidas y se recortan nombres a 120 sin partir emojis. Se agregaron `MAX_FILE`, `MAX_PIECES`, `MAX_NAME`, `MAX_DIM`, `okDim` y `clipName`. | Ida y vuelta verificada; nombre largo recortado y pieza inválida omitida. |
+| 2026-11-13 | T11 | Validación completa antes de aplicar; confirmación solo si hay piezas; reemplazo total; normalización con `fit`, apilado sobre la huella más alta y `settle`. Desvío respecto del plan inicial: no se usa `placeNew` para resolver solapes al importar (D20). | 120 checks; archivos inválidos, enormes y cancelados dejan el estado intacto. |
+| 2026-11-13 | T12 | Sonido de dos notas con Web Audio y fallback silencioso al finalizar una importación exitosa. Interpretación de "cuando pueda volver a poner input" documentada en D21. | Se contaron 2 osciladores, 2 inicios y 2 ganancias con `AudioContext` falso, y una llamada por importación exitosa. |
+| 2026-11-13 | T12 | README actualizado con piso entero, guardar/retomar, formato, validación, límites, sonido, limitaciones y mapa de funciones. PLAN extendido con T9–T12 y D15–D22. | Revisión del diff. |
+| 2026-11-13 | T12 | Verificación: 120 checks de proyecto, 36 de resize, 12 de rotación, 13 extra y 9 de producción, sin errores JS. La verificación de producción necesitó un reporte con `setTimeout` porque `requestAnimationFrame` no siempre corre bajo tiempo virtual. | Todas las suites en verde; la app real no contiene `__dbg`. |

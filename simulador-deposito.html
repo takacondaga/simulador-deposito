@@ -44,6 +44,9 @@
   tr.bad .dim:invalid, tr.bad .dim { border-color: var(--bad); }
   .del { padding: 3px 8px; line-height: 1; color: var(--bad); }
   #btn-add { margin-top: 8px; }
+  .proj { display: flex; flex-wrap: wrap; gap: 8px; }
+  .proj button { flex: 1 1 auto; }
+  .note { margin: 6px 0 0; font-size: 11px; color: var(--mut); }
   .toolbar { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; }
   .help { position: absolute; right: 10px; bottom: 8px; max-width: 70%; text-align: right; font-size: 11px; color: var(--mut); pointer-events: none; }
   #msg { position: absolute; left: 10px; bottom: 10px; background: #1c2330; color: #fff; padding: 8px 12px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
@@ -64,8 +67,8 @@
 
     <h2>Piso del depósito</h2>
     <div class="grid2">
-      <label>Frente (m)<input id="frente" type="number" min="1" max="500" step="0.1" value="6"></label>
-      <label>Fondo (m)<input id="fondo" type="number" min="1" max="500" step="0.1" value="8"></label>
+      <label>Frente (m)<input id="frente" type="number" min="1" max="500" step="1" inputmode="numeric" value="6"></label>
+      <label>Fondo (m)<input id="fondo" type="number" min="1" max="500" step="1" inputmode="numeric" value="8"></label>
     </div>
 
     <h2>Precio</h2>
@@ -84,6 +87,14 @@
     <label class="chk"><input type="checkbox" id="apilar"> Modo apilar (o mantener Shift al arrastrar)</label>
     <label class="chk"><input type="checkbox" id="snap" checked> Ajustar a grilla de 10 cm</label>
     <button type="button" id="btn-rot" disabled>Rotar 90° (tecla R)</button>
+
+    <h2>Proyecto</h2>
+    <div class="proj">
+      <button type="button" id="btn-export">Exportar proyecto</button>
+      <button type="button" id="btn-import">Importar proyecto</button>
+      <input id="file-import" type="file" accept="application/json,.json" hidden>
+    </div>
+    <p class="note">Guarda y recupera piso, precio, piezas, nombres, medidas y posiciones en un archivo JSON.</p>
 
     <h2>Piezas (medidas en cm)</h2>
     <table>
@@ -138,6 +149,22 @@
   var money = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' });
   var ent = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
   var ok = function (v) { return Number.isFinite(v) && v > 0; };
+
+  // Límites de importación y de medidas.
+  var MAX_FILE = 5 * 1024 * 1024; // 5 MB
+  var MAX_PIECES = 5000;
+  var MAX_NAME = 120;
+  var MAX_DIM = 1000000; // cm (10 km)
+  var okDim = function (v) { return ok(v) && v <= MAX_DIM; };
+  // Recorta sin partir un par sustituto (emojis) al llegar a MAX_NAME.
+  var clipName = function (s) {
+    s = String(s);
+    if (s.length <= MAX_NAME) return s;
+    var cut = s.slice(0, MAX_NAME);
+    var c = cut.charCodeAt(cut.length - 1);
+    if (c >= 0xD800 && c <= 0xDBFF) cut = cut.slice(0, -1);
+    return cut;
+  };
 
   // ---------- Escena ----------
   var scene = new THREE.Scene();
@@ -456,6 +483,263 @@
     flashTimer = setTimeout(function () { el.classList.remove('show'); }, 2500);
   }
 
+  // ---------- Proyecto: exportar / importar ----------
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  function fileStamp() {
+    var d = new Date();
+    return '' + d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) +
+      '-' + pad2(d.getHours()) + pad2(d.getMinutes());
+  }
+
+  function exportFileName() {
+    return 'deposito-' + (floorW / 100) + 'x' + (floorD / 100) + 'm-' + fileStamp() + '.json';
+  }
+
+  // Arma el JSON del proyecto. Las piezas inválidas se omiten.
+  function buildExportData() {
+    var price = Number($('precio').value);
+    if (!Number.isFinite(price) || price < 0) price = 0;
+    var out = [], skipped = 0;
+    pieces.forEach(function (p) {
+      if (!p.valid) { skipped++; return; }
+      out.push({
+        nombre: clipName(p.name || ''),
+        tamano_cm: { largo: p.l, ancho: p.w, alto: p.h },
+        posicion_cm: { x: p.x, y: p.y, z: p.z },
+        rotacion_grados: p.rot ? 90 : 0
+      });
+    });
+    return {
+      skipped: skipped,
+      data: {
+        formato: 'simulador-deposito',
+        version: 1,
+        piso_m: { frente: floorW / 100, fondo: floorD / 100 },
+        precio_m2: price,
+        piezas: out
+      }
+    };
+  }
+
+  function exportProject() {
+    try {
+      var built = buildExportData();
+      var blob = new Blob([JSON.stringify(built.data, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var name = exportFileName();
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      flash('Proyecto exportado: ' + name +
+        (built.skipped ? ' (' + built.skipped + ' pieza(s) inválida(s) omitida(s))' : ''));
+    } catch (err) {
+      flash('No se pudo exportar el proyecto.');
+    }
+  }
+
+  function isObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
+  function isNum(v) { return typeof v === 'number' && Number.isFinite(v); }
+
+  // Valida el JSON completo antes de tocar el proyecto actual.
+  function parseProject(text) {
+    var data;
+    try { data = JSON.parse(text); }
+    catch (err) { return { error: 'El archivo no es un JSON válido.' }; }
+    if (!isObj(data)) return { error: 'El JSON debe ser un objeto.' };
+    if (data.formato !== 'simulador-deposito') {
+      return { error: 'No parece un proyecto del simulador (falta el formato).' };
+    }
+    if (data.version !== 1) return { error: 'Versión de proyecto no soportada (se espera la 1).' };
+    var piso = data.piso_m;
+    if (!isObj(piso)) return { error: 'Falta "piso_m" con frente y fondo.' };
+    var f = piso.frente, d = piso.fondo;
+    if (!Number.isInteger(f) || f < 1 || f > 500) {
+      return { error: '"piso_m.frente" debe ser un entero entre 1 y 500.' };
+    }
+    if (!Number.isInteger(d) || d < 1 || d > 500) {
+      return { error: '"piso_m.fondo" debe ser un entero entre 1 y 500.' };
+    }
+    var price = data.precio_m2;
+    if (!isNum(price) || price < 0) {
+      return { error: '"precio_m2" debe ser un número mayor o igual a 0.' };
+    }
+    if (!Array.isArray(data.piezas)) return { error: 'Falta la lista "piezas".' };
+    if (data.piezas.length > MAX_PIECES) {
+      return { error: 'El proyecto tiene más de ' + MAX_PIECES + ' piezas.' };
+    }
+    var list = [];
+    for (var i = 0; i < data.piezas.length; i++) {
+      var src = data.piezas[i], n = i + 1;
+      if (!isObj(src)) return { error: 'La pieza ' + n + ' no es un objeto.' };
+      var name = src.nombre;
+      if (name === undefined || name === null) name = 'Pieza ' + n;
+      if (typeof name !== 'string') {
+        return { error: 'El nombre de la pieza ' + n + ' debe ser texto.' };
+      }
+      name = name.trim();
+      if (name.length > MAX_NAME) name = clipName(name);
+      var t = src.tamano_cm;
+      if (!isObj(t)) return { error: 'La pieza ' + n + ' no tiene "tamano_cm".' };
+      if (!okDim(t.largo) || !okDim(t.ancho) || !okDim(t.alto)) {
+        return { error: 'Las medidas de la pieza ' + n + ' deben ser mayores que 0 y hasta ' + MAX_DIM + ' cm.' };
+      }
+      var pos = src.posicion_cm;
+      if (!isObj(pos) || !isNum(pos.x) || !isNum(pos.y) || !isNum(pos.z)) {
+        return { error: 'La posición de la pieza ' + n + ' debe tener números finitos en x, y, z.' };
+      }
+      var rot = src.rotacion_grados;
+      if (rot === undefined) rot = 0;
+      if (rot !== 0 && rot !== 90) {
+        return { error: 'La rotación de la pieza ' + n + ' debe ser 0 o 90 grados.' };
+      }
+      list.push({
+        nombre: name,
+        l: t.largo, w: t.ancho, h: t.alto,
+        x: pos.x, y: pos.y, z: pos.z,
+        rot: rot === 90 ? 1 : 0
+      });
+    }
+    return {
+      ok: true,
+      data: { frente: f, fondo: d, precio: price, piezas: list }
+    };
+  }
+
+  // Borra todas las piezas sin recalcular el estado pieza por pieza.
+  function removeAllPieces() {
+    if (drag) {
+      try { cv.releasePointerCapture(drag.id); } catch (err) { /* nada */ }
+      drag = null;
+      if (controls) controls.enabled = true;
+      cv.style.cursor = '';
+      paintHandles(0x1f6feb);
+    }
+    selected = null;
+    handleGroup.visible = false;
+    $('btn-rot').disabled = true;
+    pieces.forEach(disposePiece);
+    pieces = [];
+    tbody.textContent = '';
+    updateStats();
+  }
+
+  // Aplica un proyecto ya validado. Las posiciones se ajustan al piso y los
+  // solapes se resuelven apilando sobre la pieza más alta de la misma huella.
+  function applyProject(pr) {
+    floorW = pr.frente * 100;
+    floorD = pr.fondo * 100;
+    $('frente').value = String(pr.frente);
+    $('fondo').value = String(pr.fondo);
+    $('frente').classList.remove('bad');
+    $('fondo').classList.remove('bad');
+    $('precio').value = String(pr.precio);
+
+    removeAllPieces();
+    buildFloor();
+
+    pr.piezas.forEach(function (src) {
+      var p = makePiece();
+      p.name = src.nombre;
+      p.l = src.l; p.w = src.w; p.h = src.h;
+      p.rot = src.rot;
+      derive(p);
+      var c = fit(p, src.x, src.z, false);
+      p.x = c[0];
+      p.z = c[1];
+      p.y = Math.max(0, src.y);
+      p.valid = true;
+      p.placed = true;
+      pieces.push(p);
+      buildRow(p);
+      rebuildMesh(p);
+      updateLabel(p);
+    });
+
+    pieces.slice().sort(function (a, b) { return a.y - b.y; }).forEach(function (p) {
+      if (!collides(p, p.x, p.y, p.z)) return;
+      var top = 0;
+      pieces.forEach(function (q) {
+        if (q !== p && q.valid && ov(p, p.x, p.z, q)) top = Math.max(top, q.y + q.h);
+      });
+      p.y = top;
+    });
+    settle(null);
+
+    // Seguridad: ningún par puede quedar solapado tras el asentado.
+    pieces.forEach(function (p) {
+      if (!collides(p, p.x, p.y, p.z)) return;
+      var top = 0;
+      pieces.forEach(function (q) {
+        if (q !== p && q.valid && ov(p, p.x, p.z, q)) top = Math.max(top, q.y + q.h);
+      });
+      p.y = top;
+    });
+    settle(null);
+
+    syncMeshes();
+    updateStats();
+    fitCamera(topView);
+    select(null);
+  }
+
+  function importProjectFile(file) {
+    if (!file) return;
+    if (file.size > MAX_FILE) {
+      flash('El archivo supera el límite de 5 MB.');
+      return;
+    }
+    var reader = new FileReader();
+    reader.onerror = function () { flash('No se pudo leer el archivo.'); };
+    reader.onload = function () {
+      var res = parseProject(String(reader.result || ''));
+      if (!res.ok) { flash(res.error); return; }
+      if (pieces.length && !window.confirm('Importar reemplaza el proyecto actual (' +
+          pieces.length + ' pieza' + (pieces.length === 1 ? '' : 's') + '). ¿Continuar?')) {
+        return;
+      }
+      applyProject(res.data);
+      var n = res.data.piezas.length;
+      flash('Proyecto importado: ' + n + ' pieza' + (n === 1 ? '' : 's') + '.');
+      playReadySound();
+    };
+    try { reader.readAsText(file); }
+    catch (err) { flash('No se pudo leer el archivo.'); }
+  }
+
+  // Aviso sonoro de "listo para editar" al terminar una importación.
+  var audioCtx = null;
+  function playReadySound() {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!audioCtx) audioCtx = new AC();
+      if (audioCtx.state === 'suspended') {
+        var pr = audioCtx.resume();
+        if (pr && pr.catch) pr.catch(function () { /* sin audio */ });
+      }
+      var now = audioCtx.currentTime;
+      [880, 1174.66].forEach(function (freq, i) {
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        var t0 = now + i * 0.09;
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, t0);
+        gain.gain.exponentialRampToValueAtTime(0.12, t0 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.2);
+      });
+    } catch (err) { /* sin audio: no se interrumpe la importación */ }
+  }
+
   // ---------- Selección y alta/baja ----------
   function select(p) {
     if (drag && drag.kind !== 'move' && drag.p !== p) cancelResize();
@@ -471,7 +755,7 @@
   }
 
   function applyDims(p) {
-    p.valid = ok(p.l) && ok(p.w) && ok(p.h);
+    p.valid = okDim(p.l) && okDim(p.w) && okDim(p.h);
     p.tr.classList.toggle('bad', !p.valid);
     if (!p.valid) {
       if (p.mesh) p.mesh.visible = false;
@@ -508,6 +792,7 @@
     var nm = mk('text', 'nm');
     nm.value = p.name;
     nm.placeholder = 'Nombre';
+    nm.maxLength = MAX_NAME;
     nm.addEventListener('input', function () { p.name = nm.value; updateLabel(p); });
     tdName.appendChild(sw);
     tdName.appendChild(nm);
@@ -544,6 +829,20 @@
     select(p);
   }
 
+  function disposePiece(p) {
+    if (p.mesh) {
+      scene.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mesh.material.dispose();
+      if (p.edges) { p.edges.geometry.dispose(); p.edges.material.dispose(); }
+      if (p.label) {
+        if (p.label.material.map) p.label.material.map.dispose();
+        p.label.material.dispose();
+      }
+    }
+    if (p.tr && p.tr.parentNode) p.tr.parentNode.removeChild(p.tr);
+  }
+
   function removePiece(p) {
     if (drag && drag.p === p) {
       try { cv.releasePointerCapture(drag.id); } catch (err) { /* nada */ }
@@ -555,17 +854,7 @@
     if (selected === p) select(null);
     var i = pieces.indexOf(p);
     if (i >= 0) pieces.splice(i, 1);
-    if (p.mesh) {
-      scene.remove(p.mesh);
-      p.mesh.geometry.dispose();
-      p.mesh.material.dispose();
-      if (p.edges) { p.edges.geometry.dispose(); p.edges.material.dispose(); }
-      if (p.label) {
-        if (p.label.material.map) p.label.material.map.dispose();
-        p.label.material.dispose();
-      }
-    }
-    p.tr.remove();
+    disposePiece(p);
     settle(null); syncMeshes(); updateStats();
   }
 
@@ -663,7 +952,7 @@
     var p = drag.p;
     var raw = drag.h0 + (drag.y0 - e.clientY) * drag.wpp;
     var nh = Math.round(raw / drag.min) * drag.min;
-    nh = Math.max(drag.min, nh);
+    nh = Math.max(drag.min, Math.min(MAX_DIM, nh));
     p.h = nh;
     if (collides(p, p.x, p.y, p.z)) {
       p.h = drag.last.h;
@@ -709,15 +998,18 @@
   }
 
   function applyFloor() {
-    var f = parseFloat($('frente').value);
-    var d = parseFloat($('fondo').value);
-    var okF = ok(f) && f <= 500;
-    var okD = ok(d) && d <= 500;
+    // Solo metros enteros: Number + isInteger evita que "6,5" se trunque a 6.
+    var f = Number($('frente').value);
+    var d = Number($('fondo').value);
+    var okF = Number.isInteger(f) && f >= 1 && f <= 500;
+    var okD = Number.isInteger(d) && d >= 1 && d <= 500;
     $('frente').classList.toggle('bad', !okF);
     $('fondo').classList.toggle('bad', !okD);
     if (!okF || !okD) return;
-    floorW = Math.round(f * 1000) / 10;
-    floorD = Math.round(d * 1000) / 10;
+    var nw = f * 100, nd = d * 100;
+    if (nw === floorW && nd === floorD) return;
+    floorW = nw;
+    floorD = nd;
     buildFloor();
     var list = pieces.filter(function (p) { return p.valid; }).sort(function (a, b) { return a.y - b.y; });
     list.forEach(function (p) {
@@ -896,6 +1188,13 @@
   $('precio').addEventListener('input', updateStats);
   $('frente').addEventListener('input', applyFloor);
   $('fondo').addEventListener('input', applyFloor);
+  $('btn-export').addEventListener('click', exportProject);
+  $('btn-import').addEventListener('click', function () { $('file-import').click(); });
+  $('file-import').addEventListener('change', function () {
+    var f = this.files && this.files[0];
+    this.value = '';
+    if (f) importProjectFile(f);
+  });
 
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && drag && drag.kind !== 'move') {
