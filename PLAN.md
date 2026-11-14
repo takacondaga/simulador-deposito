@@ -1,7 +1,7 @@
 # PLAN — Redimensionar piezas arrastrando vértices
 
 - **Proyecto:** Simulador de depósito (`simulador-deposito.html`)
-- **Estado:** implementado, verificado y publicado en `main` (resize, commit `e5d637c`); ampliación de proyecto implementada y verificada
+- **Estado:** ampliación publicada en `main` (commit `f0062f6`): piso entero, proyectos JSON y aviso sonoro; resize previo en `e5d637c`
 - **Creado:** 2026-11-12
 - **Última actualización:** 2026-11-13
 
@@ -383,3 +383,4 @@ hacen con páginas y scripts temporales fuera del proyecto.
 | 2026-11-13 | T12 | Sonido de dos notas con Web Audio y fallback silencioso al finalizar una importación exitosa. Interpretación de "cuando pueda volver a poner input" documentada en D21. | Se contaron 2 osciladores, 2 inicios y 2 ganancias con `AudioContext` falso, y una llamada por importación exitosa. |
 | 2026-11-13 | T12 | README actualizado con piso entero, guardar/retomar, formato, validación, límites, sonido, limitaciones y mapa de funciones. PLAN extendido con T9–T12 y D15–D22. | Revisión del diff. |
 | 2026-11-13 | T12 | Verificación: 120 checks de proyecto, 36 de resize, 12 de rotación, 13 extra y 9 de producción, sin errores JS. La verificación de producción necesitó un reporte con `setTimeout` porque `requestAnimationFrame` no siempre corre bajo tiempo virtual. | Todas las suites en verde; la app real no contiene `__dbg`. |
+| 2026-11-13 | T12.4 | Diff revisado: solo `simulador-deposito.html`, `README.md` y `PLAN.md`; sin hooks de depuración. Commit `f0062f6` subido a `main` (`e41ffb0..f0062f6`). | `git diff --check` sin errores y `git status -sb` sin diferencias pendientes con `origin/main`. |
